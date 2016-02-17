@@ -1,0 +1,30 @@
+[package]
+name = "feretto"
+version = "0.0.1"
+authors = ["Joseph Kordish <joe@unicornclouds.com>"]
+
+description = "Utility to generate consul events from matched strings found in a file/log"
+homepage = "https://github.com/jkordish/feretto"
+repository = "https://github.com/jkordish/feretto"
+
+readme = "README.md"
+license = "The MIT License (MIT)"
+
+keywords = [
+  "consul",
+  "event",
+  "notify",
+  "logs"
+]
+
+[dependencies]
+docopt = "^0.6.78"
+docopt_macros = "^0.6.81"
+rustc-serialize = "^0.3.18"
+curl = "^0.2.16 "
+notify = "^2.5.4"
+aho-corasick = "^0.5.1"
+clippy = {version="^0.0.51", optional = true}
+
+[features]
+default=[]
