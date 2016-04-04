@@ -9,15 +9,14 @@ use std::path::Path;
 use std::sync::mpsc::channel;
 use std::io::SeekFrom;
 use std::fs::File;
-// use std::sync::{Arc, Mutex};
-// use std::thread::{self, JoinHandle};
-// use std::thread;
 
 use self::aho_corasick::{Automaton, AcAutomaton};
 use self::curl::http;
 use self::notify::{RecommendedWatcher, Error, Watcher};
 
-#[derive(Debug, Clone)]
+use config;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct DescribeEvent {
     file: String,
     string: String,
@@ -27,7 +26,7 @@ struct DescribeEvent {
     name: String,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct FileHandler {
     pos: u64,
 }
@@ -75,7 +74,7 @@ impl ConsulEvent for DescribeEvent {
 
     fn monitor(&self) {
 
-        println!("Launching monitoring!");
+        println!("[INFO] Monitoring file {}", self.file_name());
 
         let handler = FileHandler { pos: 0 };
 
@@ -110,7 +109,7 @@ impl ConsulEvent for DescribeEvent {
         };
 
         if resp.get_code() == 200 {
-            println!("Event fired for: {}", &*self.name);
+            println!("[INFO] Event fired for: {}", &*self.name);
         } else {
             println!("Unable to handle HTTP response code {}", resp.get_code());
         };
@@ -145,8 +144,11 @@ impl WatchFile for FileHandler {
                 Err(err) => panic!("Could not watch file. {:?}", err),
             };
 
+            // while loop whenever we recieve a message on the channel
             while let Ok(_) = rx.recv() {
+                // create a mutable line to store the contents
                 let mut line = String::new();
+                // read from pos to eof to a string and store in line
                 let resp = reader.read_to_string(&mut line);
                 match resp {
                     Ok(len) => {
@@ -165,9 +167,10 @@ impl WatchFile for FileHandler {
                         }
                     }
                     Err(err) => {
-                        println!("bas response from file: {:?}", err);
+                        println!("Bad response from file: {:?}", err);
                     }
                 }
+                // clear the contents of line
                 line.clear();
             }
         }
@@ -175,18 +178,22 @@ impl WatchFile for FileHandler {
     }
 }
 
-pub fn new(server: &str, port: &str, file: &str, options: String, name: String, string: String) {
+// the new function gets its values passed from config
+pub fn new(server: &str, port: &str, config_file: Vec<config::Config>) {
 
+    // since config_file is a vector with one element containing our struct
+    // we can just grab the first element which is the struct.
+    let config_file = &config_file[0];
 
-    println!("Initilizing");
-
+    // build out our ConsulEvent struct with from the config_file
     let consul_event: DescribeEvent = ConsulEvent::new(server.to_owned(),
                                                        port.to_owned(),
-                                                       file.to_owned(),
-                                                       options,
-                                                       name,
-                                                       string);
+                                                       config_file.file.to_owned(),
+                                                       config_file.options.to_owned().unwrap_or("".to_string()),
+                                                       config_file.name.to_owned().unwrap_or(config_file.file.to_owned()),
+                                                       config_file.string.to_owned());
 
+    // Launch monitoring from our created consul_event
     consul_event.monitor();
 
 }
