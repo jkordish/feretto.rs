@@ -186,12 +186,13 @@ pub fn new(server: &str, port: &str, config_file: Vec<config::Config>) {
     let config_file = &config_file[0];
 
     // build out our ConsulEvent struct with from the config_file
-    let consul_event: DescribeEvent = ConsulEvent::new(server.to_owned(),
-                                                       port.to_owned(),
-                                                       config_file.file.to_owned(),
-                                                       config_file.options.to_owned().unwrap_or("".to_string()),
-                                                       config_file.name.to_owned().unwrap_or(config_file.file.to_owned()),
-                                                       config_file.string.to_owned());
+    let consul_event: DescribeEvent =
+        ConsulEvent::new(server.to_owned(),
+                         port.to_owned(),
+                         config_file.file.to_owned(),
+                         config_file.options.to_owned().unwrap_or("".to_string()),
+                         config_file.name.to_owned().unwrap_or(config_file.file.to_owned()),
+                         config_file.string.to_owned());
 
     // Launch monitoring from our created consul_event
     consul_event.monitor();
