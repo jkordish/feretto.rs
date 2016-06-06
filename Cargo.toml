@@ -19,16 +19,16 @@ keywords = [
 
 [dependencies]
 docopt = "^0.6.80"
-docopt_macros = "^0.6.83"
+docopt_macros = "^0.6.84"
 rustc-serialize = "^0.3.19"
-curl = "^0.2.18"
-notify = "^2.5.5"
-aho-corasick = "^0.5.1"
-serde = "^0.7.0"
-serde_json = "^0.7.0"
-serde_macros = "^0.7.2"
+curl = "^0.2.19"
+notify = "^2.6.0"
+aho-corasick = "^0.5.2"
+serde = "^0.7.8"
+serde_json = "^0.7.1"
+serde_macros = "^0.7.8"
 crossbeam = "^0.2.9"
-clippy = {version="^0.0.63", optional = true}
+clippy = {version="^0.0.73", optional = true}
 
 [features]
 default=[]

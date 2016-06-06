@@ -9,7 +9,7 @@ use self::crossbeam::*;
 
 use event;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Config {
     pub file: String,
     pub string: String,

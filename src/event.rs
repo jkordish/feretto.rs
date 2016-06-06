@@ -16,7 +16,7 @@ use self::notify::{RecommendedWatcher, Error, Watcher};
 
 use config;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize)]
 struct DescribeEvent {
     file: String,
     string: String,
@@ -130,7 +130,7 @@ impl WatchFile for FileHandler {
         // Get the initial position of the file from the metadata.
         let mut pos = metadata.len();
         // read from pos as to not read the entire file.
-        &reader.seek(SeekFrom::Start(pos)).unwrap();
+        reader.seek(SeekFrom::Start(pos)).unwrap();
 
 
         let (tx, rx) = channel();
