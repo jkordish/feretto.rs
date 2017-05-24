@@ -19,14 +19,14 @@ pub struct Config {
 
 pub fn new(server: &str, port: &str, config: &str) {
 
-    println!("[INFO] Initilizing: Server: {:?}, Port: {:?}, Config Directory: {:?}",
+    println!("[INFO] Initializing: Server: {:?}, Port: {:?}, Config Directory: {:?}",
              server,
              port,
              config);
 
     let path = fs::read_dir(&config).expect("Unable to read directory");
 
-    // need crossbeam as the std Arc is ineffiecent for my use case
+    // need crossbeam as the std Arc is inefficient for my use case
     crossbeam::scope(|scope| {
         for file in path {
             scope.spawn(move || {
@@ -37,8 +37,8 @@ pub fn new(server: &str, port: &str, config: &str) {
 
                 let mut file_open = File::open(&file).expect("Unable to read file");
                 let mut buf = String::new();
-                let _ = file_open.read_to_string(&mut buf)
-                                 .expect("Unable to read contents of file");
+                let _ =
+                    file_open.read_to_string(&mut buf).expect("Unable to read contents of file");
 
                 let config_file: Vec<Config> = match serde_json::from_str(&buf) {
                     Ok(config_file) => config_file,

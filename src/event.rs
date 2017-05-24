@@ -47,7 +47,6 @@ trait ConsulEvent {
     fn search_string(&self) -> String;
 
     fn monitor(&self);
-
 }
 
 pub trait WatchFile {

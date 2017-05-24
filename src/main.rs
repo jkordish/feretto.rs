@@ -28,10 +28,10 @@ fn main() {
 
     // Decode docopts
     let args: Args = Args::docopt()
-                         .decode()
-                         .unwrap_or_else(|e| e.exit());
+        .decode()
+        .unwrap_or_else(|e| e.exit());
 
-     if args.cmd_run {
-         config::new(&args.flag_server, &args.flag_port, &args.flag_config);
-     }
+    if args.cmd_run {
+        config::new(&args.flag_server, &args.flag_port, &args.flag_config);
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "feretto"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Joseph Kordish <joe@unicornclouds.com>"]
 
 description = "Utility to generate consul events from matched strings found in a file/log"
@@ -18,17 +18,19 @@ keywords = [
 ]
 
 [dependencies]
-docopt = "^0.6.81"
-docopt_macros = "^0.6.84"
-rustc-serialize = "^0.3.19"
-curl = "^0.2.19"
-notify = "^2.6.1"
-aho-corasick = "^0.5.2"
-serde = "^0.7.11"
-serde_json = "^0.7.2"
-serde_macros = "^0.7.11"
-crossbeam = "^0.2.9"
-clippy = {version="^0.0.77", optional = true}
+docopt = "^0.7"
+docopt_macros = "^0.7"
+rustc-serialize = "^0.3"
+curl = "0.2.19"
+notify = "^4"
+aho-corasick = "^0.6"
+serde = "^1"
+serde_json = "^1"
+serde_macros = "^0.8"
+serde_codegen = "^0.9"
+serde_codegen_internals = "^0.14"
+crossbeam = "^0.2"
+clippy = {version="*", optional = true}
 
 [features]
 default=[]
