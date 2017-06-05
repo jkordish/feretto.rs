@@ -1,0 +1,5 @@
+{
+  "target_arn": "target_arn",
+  "role_arn": "role_arn",
+  "region": "us-west-2"
+}

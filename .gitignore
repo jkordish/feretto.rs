@@ -15,3 +15,7 @@ debug/
 release/
 config/
 Cargo.lock
+
+
+test/
+feretto.json
