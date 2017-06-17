@@ -26,12 +26,13 @@ use notify::{Watcher, RecursiveMode, watcher};
 use std::path::Path;
 use std::str::FromStr;
 use std::env;
+use std::error::Error;
 
 #[derive(Serialize, Deserialize)]
 struct LogFile {
     file: String,
     string: String,
-    name: String,
+    name: String
 }
 
 // struct for our config file
@@ -39,35 +40,35 @@ struct LogFile {
 struct ConfigFile {
     target_arn: String,
     role_arn: String,
-    region: String,
+    region: String
 }
 
 // struct for our system information
 struct SystemInfo {
     hostname: String,
-    ipaddr: String,
+    ipaddr: String
 }
 
 trait Watched {
     fn fire(&self, config: &ConfigFile) -> Result<PublishResponse, PublishError>;
-    fn monitor(&self, config: &ConfigFile);
+    fn monitor(&self, config: &ConfigFile) -> Result<(), Box<Error>>;
 }
 
 trait WatchFile {
-    fn watch(&self) -> notify::Result<()>;
+    fn watch(&self) -> bool;
 }
 
 impl Watched for LogFile {
-    fn monitor(&self, config: &ConfigFile) {
+    fn monitor(&self, config: &ConfigFile) -> Result<(), Box<Error>> {
 
-        println!("[INFO] Monitoring file {}",
-                 Path::new(&self.file).canonicalize().unwrap().display());
+        println!(
+            "[INFO] Monitoring file {}",
+            Path::new(&self.file).canonicalize().unwrap().display()
+        );
+
         loop {
-            if WatchFile::watch(self).is_ok() {
-                match self.fire(config) {
-                    Ok(_) => println!("Sent SNS for {}", &self.name),
-                    Err(e) => println!("Unable to send SNS for {}. {}", &self.name, e),
-                }
+            if WatchFile::watch(self) {
+                self.fire(config)?;
             }
         }
     }
@@ -75,6 +76,7 @@ impl Watched for LogFile {
     fn fire(&self, config: &ConfigFile) -> Result<PublishResponse, PublishError> {
 
         // determine our hostname.
+        #[allow(unused_assignments)]
         let mut hostname = String::new();
         if let Ok(mut file) = File::open("/etc/hostname") {
             let mut buffer = String::new();
@@ -97,54 +99,63 @@ impl Watched for LogFile {
         // store hostname and ip address in our struct
         let system: SystemInfo = SystemInfo {
             hostname: hostname,
-            ipaddr: address,
+            ipaddr: address
         };
 
-        println!("[INFO] Firing for event {}", &self.string);
+        println!("[INFO] Firing for event '{}'", &self.string);
         // set up our credentials provider for aws
         let provider = DefaultCredentialsProvider::new()?;
 
         // initiate our sts client
-        let sts_client = StsClient::new(default_tls_client().unwrap(),
-                                        provider,
-                                        Region::from_str(&config.region.clone()).unwrap());
+        let sts_client = StsClient::new(
+            default_tls_client().unwrap(),
+            provider,
+            Region::from_str(&config.region.clone()).unwrap()
+        );
         // generate a sts provider
-        let sts_provider = StsAssumeRoleSessionCredentialsProvider::new(sts_client,
-                                                                        config.role_arn.clone(),
-                                                                        "feretto".to_owned(),
-                                                                        None,
-                                                                        None,
-                                                                        None,
-                                                                        None);
+        let sts_provider = StsAssumeRoleSessionCredentialsProvider::new(
+            sts_client,
+            config.role_arn.clone(),
+            "feretto".to_owned(),
+            None,
+            None,
+            None,
+            None
+        );
         // allow our STS to auto-refresh
         let auto_sts_provider = AutoRefreshingProvider::with_refcell(sts_provider);
 
         // create our s3 client initialization
-        let sns = SnsClient::new(default_tls_client().unwrap(),
-                                 auto_sts_provider.unwrap(),
-                                 Region::from_str(&config.region.clone()).unwrap());
+        let sns = SnsClient::new(
+            default_tls_client().unwrap(),
+            auto_sts_provider?,
+            Region::from_str(&config.region.clone()).unwrap()
+        );
 
         let req = PublishInput {
-            message: format!("{}:{}::Triggered {} on {}",
-                             &system.hostname,
-                             &system.ipaddr,
-                             &self.string,
-                             &self.name),
+            message: format!(
+                "{}:{}::Triggered {} on {}",
+                &system.hostname,
+                &system.ipaddr,
+                &self.string,
+                &self.name
+            ),
             subject: Some("feretto: notification".to_string()),
             target_arn: Some(config.target_arn.clone()),
             ..Default::default()
         };
+
         sns.publish(&req)
     }
 }
 
 impl WatchFile for LogFile {
-    fn watch(&self) -> notify::Result<()> {
+    fn watch(&self) -> bool {
         // Attempt to open the file or error.
-        let file = File::open(&self.file).expect("Unable to open file.");
+        let file = File::open(&self.file).unwrap();
 
         // Attempt to get the metadata of the file or error.
-        let metadata = file.metadata().expect("Can't open file metadata.");
+        let metadata = file.metadata().unwrap();
 
         // Create a buffered reader for the file.
         let mut reader = BufReader::new(&file);
@@ -154,45 +165,39 @@ impl WatchFile for LogFile {
         reader.seek(SeekFrom::Start(pos)).unwrap();
 
         let (tx, rx) = channel();
-        let mut watcher = watcher(tx, Duration::from_secs(2))?;
+        let mut watcher = watcher(tx, Duration::from_secs(2)).unwrap();
 
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
-        watcher.watch(&self.file, RecursiveMode::NonRecursive)?;
+        watcher.watch(&self.file, RecursiveMode::NonRecursive)
+               .unwrap();
 
         // while loop whenever we recieve a message on the channel
-        while let Ok(event) = rx.recv() {
+        if let Ok(event) = rx.recv() {
 
             // create a mutable line to store the contents
             let mut line = String::new();
 
             // read from pos to eof to a string and store in line
             let resp = reader.read_to_string(&mut line);
-            match resp {
-                Ok(len) => {
-                    if len > 0 {
-                        pos += len as u64;
-                        reader.seek(SeekFrom::Start(pos)).unwrap();
 
-                        let aut = AcAutomaton::new(vec![self.string.to_owned()]);
-                        let mut it = aut.find(line.as_bytes());
+            if let Ok(len) = resp {
+                if len > 0 {
+                    pos += len as u64;
+                    reader.seek(SeekFrom::Start(pos)).unwrap();
 
-                        println!("[INFO] Event occured {:?}", &event);
+                    let aut = AcAutomaton::new(vec![self.string.to_owned()]);
+                    let mut it = aut.find(line.as_bytes());
 
-                        // evaulate if a match was found
-                        if it.next().is_some() {
-                            return Ok(());
-                        }
-                    }
-                }
-                Err(err) => {
-                    println!("Bad response from file: {:?}", err);
+                    println!("[INFO] Event occured {:?}", &event);
+                    if it.next().is_some() {
+                        return true;
+                    };
                 }
             }
-            // clear the contents of line
             line.clear();
         }
-        Ok(())
+        false
     }
 }
 
@@ -208,8 +213,10 @@ fn main() {
     // attempt to deserialize the config to our struct
     let config: ConfigFile = serde_json::from_reader(config_file).expect("config has invalid json");
 
-    println!("[INFO] Processing configuration file {}",
-             Path::new(&args[1]).canonicalize().unwrap().display());
+    println!(
+        "[INFO] Processing configuration file {}",
+        Path::new(&args[1]).canonicalize().unwrap().display()
+    );
 
     // open the directory to all the json files specifying log sources
     let path = read_dir(&args[2]).expect("Unable to read directory");
@@ -220,13 +227,13 @@ fn main() {
     let config_ref = &config;
 
     crossbeam::scope(|scope| for file in path {
-                         scope.spawn(move || {
+        scope.spawn(move || {
 
-            let clone_log_file = file.unwrap().path().clone();
+            let clone_log_file = file.unwrap().path().canonicalize().unwrap().clone();
             let log_direction = File::open(&clone_log_file).expect("Unable to read file");
             let logfile: LogFile = serde_json::from_reader(log_direction).expect("invalid json");
 
-            Watched::monitor(&logfile, config_ref);
+            let _ = Watched::monitor(&logfile, config_ref);
         });
-                     });
+    });
 }
