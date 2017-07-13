@@ -28,7 +28,7 @@ use std::str::FromStr;
 use std::env;
 use std::error::Error;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct LogFile {
     file: String,
     string: String,
