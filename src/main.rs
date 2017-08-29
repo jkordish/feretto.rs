@@ -1,16 +1,16 @@
 #![cfg_attr(feature = "clippy", plugin(clippy))]
 #![feature(plugin)]
 
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate notify;
 extern crate aho_corasick;
+extern crate crossbeam;
+extern crate ifaces;
+extern crate notify;
 extern crate rusoto_core;
 extern crate rusoto_sns;
 extern crate rusoto_sts;
-extern crate ifaces;
-extern crate crossbeam;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 
 use rusoto_core::{default_tls_client, AutoRefreshingProvider, DefaultCredentialsProvider, Region};
 use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
@@ -59,7 +59,6 @@ trait WatchFile {
 
 impl Watched for LogFile {
     fn monitor(&self, config: &ConfigFile) -> Result<(), Box<Error>> {
-
         println!(
             "[INFO] Monitoring file {}",
             Path::new(&self.file).canonicalize().unwrap().display()
@@ -73,7 +72,6 @@ impl Watched for LogFile {
     }
 
     fn fire(&self, config: &ConfigFile) -> Result<PublishResponse, PublishError> {
-
         // determine our hostname.
         #[allow(unused_assignments)]
         let mut hostname = String::new();
@@ -173,7 +171,6 @@ impl WatchFile for LogFile {
 
         // while loop whenever we recieve a message on the channel
         if let Ok(event) = rx.recv() {
-
             // create a mutable line to store the contents
             let mut line = String::new();
 
@@ -201,7 +198,6 @@ impl WatchFile for LogFile {
 }
 
 fn main() {
-
     let args: Vec<_> = env::args().collect();
     if args.len() < 2 {
         println!("feretto <config.json> <configs/>");
@@ -227,7 +223,6 @@ fn main() {
 
     crossbeam::scope(|scope| for file in path {
         scope.spawn(move || {
-
             let clone_log_file = file.unwrap().path().canonicalize().unwrap().clone();
             let log_direction = File::open(&clone_log_file).expect("Unable to read file");
             let logfile: LogFile = serde_json::from_reader(log_direction).expect("invalid json");
