@@ -1,10 +1,9 @@
-#![cfg_attr(feature="clippy", plugin(clippy))]
+#![cfg_attr(feature = "clippy", plugin(clippy))]
 #![feature(plugin)]
 
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate serde;
 extern crate notify;
 extern crate aho_corasick;
 extern crate rusoto_core;
@@ -13,22 +12,22 @@ extern crate rusoto_sts;
 extern crate ifaces;
 extern crate crossbeam;
 
-use rusoto_core::{AutoRefreshingProvider, default_tls_client, DefaultCredentialsProvider, Region};
-use rusoto_sts::{StsClient, StsAssumeRoleSessionCredentialsProvider};
+use rusoto_core::{default_tls_client, AutoRefreshingProvider, DefaultCredentialsProvider, Region};
+use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
 use rusoto_sns::*;
 use std::time::Duration;
-use std::io::{SeekFrom, BufReader};
+use std::io::{BufReader, SeekFrom};
 use std::io::prelude::*;
 use std::sync::mpsc::channel;
 use std::fs::{read_dir, File};
-use aho_corasick::{Automaton, AcAutomaton};
-use notify::{Watcher, RecursiveMode, watcher};
+use aho_corasick::{AcAutomaton, Automaton};
+use notify::{watcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::str::FromStr;
 use std::env;
 use std::error::Error;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct LogFile {
     file: String,
     string: String,
