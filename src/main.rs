@@ -11,20 +11,26 @@ extern crate rusoto_sts;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+#[macro_use]
+extern crate slog;
+extern crate slog_async;
+extern crate slog_term;
 
 use rusoto_core::{default_tls_client, AutoRefreshingProvider, DefaultCredentialsProvider, Region};
 use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
 use rusoto_sns::*;
+use slog::Drain;
+use aho_corasick::{AcAutomaton, Automaton};
+use notify::{watcher, RecursiveMode, Watcher};
 use std::time::Duration;
 use std::io::{BufReader, SeekFrom};
 use std::io::prelude::*;
 use std::sync::mpsc::channel;
 use std::fs::{read_dir, File};
-use aho_corasick::{AcAutomaton, Automaton};
-use notify::{watcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::str::FromStr;
 use std::env;
+use std::process::exit;
 use std::error::Error;
 
 #[derive(Serialize, Deserialize)]
@@ -59,11 +65,10 @@ trait WatchFile {
 
 impl Watched for LogFile {
     fn monitor(&self, config: &ConfigFile) -> Result<(), Box<Error>> {
-        println!(
-            "[INFO] Monitoring file {}",
-            Path::new(&self.file).canonicalize().unwrap().display()
-        );
 
+        logging("info", &format!("Monitoring file {}", Path::new(&self.file).canonicalize().unwrap().display()));
+
+        // create a loop that fires an sns event if pattern is matched in a logfile
         loop {
             if WatchFile::watch(self) {
                 self.fire(config)?;
@@ -99,7 +104,7 @@ impl Watched for LogFile {
             ipaddr: address
         };
 
-        println!("[INFO] Firing for event '{}'", &self.string);
+        logging("info", &format!("Firing for event '{}'", &self.string));
         // set up our credentials provider for aws
         let provider = DefaultCredentialsProvider::new()?;
 
@@ -167,9 +172,9 @@ impl WatchFile for LogFile {
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
         watcher.watch(&self.file, RecursiveMode::NonRecursive)
-               .unwrap();
+            .unwrap();
 
-        // while loop whenever we recieve a message on the channel
+        // while loop whenever we receive a message on the channel
         if let Ok(event) = rx.recv() {
             // create a mutable line to store the contents
             let mut line = String::new();
@@ -185,7 +190,7 @@ impl WatchFile for LogFile {
                     let aut = AcAutomaton::new(vec![self.string.to_owned()]);
                     let mut it = aut.find(line.as_bytes());
 
-                    println!("[INFO] Event occured {:?}", &event);
+                    logging("info", &format!("Event occurred {:?}", &event));
                     if it.next().is_some() {
                         return true;
                     };
@@ -201,33 +206,76 @@ fn main() {
     let args: Vec<_> = env::args().collect();
     if args.len() < 2 {
         println!("feretto <config.json> <configs/>");
+        exit(1)
     }
 
     // open our config file
-    let config_file = File::open(&args[1]).expect("could not open file");
-    // attempt to deserialize the config to our struct
-    let config: ConfigFile = serde_json::from_reader(config_file).expect("config has invalid json");
+    let config_file = match File::open(&args[1]) {
+        Ok(file) => file,
+        Err(_) => {
+            logging("crit", &format!("Unable to open {}", &args[1]));
+            exit(1)
+        }
+    };
 
-    println!(
-        "[INFO] Processing configuration file {}",
-        Path::new(&args[1]).canonicalize().unwrap().display()
-    );
+    // attempt to deserialize the config to our struct
+    let config: ConfigFile = match serde_json::from_reader(config_file) {
+        Ok(json) => json,
+        Err(_) => {
+            logging("crit", &format!("{} not valid json", &args[1]));
+            exit(1)
+        }
+    };
+
+    logging("info", &format!("[INFO] Processing configuration file {}", Path::new(&args[1]).canonicalize().unwrap().display()));
 
     // open the directory to all the json files specifying log sources
-    let path = read_dir(&args[2]).expect("Unable to read directory");
+    let path = match read_dir(&args[2]) {
+        Ok(directory) => directory,
+        Err(_) => {
+            logging("crit", &format!("Unable to open directory {}", &args[2]));
+            exit(1)
+        }
+    };
 
     // if we got here we should let someone know
-    println!("[INFO] Feretto starting up!");
+    logging("info", "Ferretto starting up...");
 
-    let config_ref = &config;
+    crossbeam::scope(|scope|
+        for file in path {
+            scope.spawn( || {
+                let clone_log_file = file.unwrap().path().canonicalize().unwrap().clone();
+                let watched_log_file = match File::open(&clone_log_file) {
+                    Ok(file) => file,
+                    Err(_) => {
+                        logging("crit", &format!("Unable to open {}", &clone_log_file.to_str().unwrap()));
+                        exit(1)
+                    }
+                };
+                let logfile: LogFile = match serde_json::from_reader(watched_log_file) {
+                    Ok(file) => file,
+                    Err(_) => {
+                        logging("crit", &format!("{} not valid json?", &clone_log_file.to_str().unwrap()));
+                        exit(1)
+                    }
+                };
 
-    crossbeam::scope(|scope| for file in path {
-        scope.spawn(move || {
-            let clone_log_file = file.unwrap().path().canonicalize().unwrap().clone();
-            let log_direction = File::open(&clone_log_file).expect("Unable to read file");
-            let logfile: LogFile = serde_json::from_reader(log_direction).expect("invalid json");
-
-            let _ = Watched::monitor(&logfile, config_ref);
+                let _ = Watched::monitor(&logfile, &config);
+            });
         });
-    });
+}
+
+fn logging(log_type: &str, msg: &str) {
+    let decorator = slog_term::TermDecorator::new().build();
+    let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
+
+    let logger = slog::Logger::root(drain, o!());
+
+    match log_type {
+        "info" => info!(logger, "copy-ami-tags"; "[*]" => &msg),
+        "error" => error!(logger, "copy-ami-tags"; "[*]" => &msg),
+        "crit" => crit!(logger, "copy-ami-tags"; "[*]" => &msg),
+        _ => {}
+    }
 }

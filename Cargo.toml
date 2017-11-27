@@ -1,6 +1,6 @@
 [package]
 name        = "feretto"
-version     = "0.1.0"
+version     = "0.2.0"
 authors     = ["Joseph Kordish <joe@unicornclouds.com>"]
 description = "Utility to generate aws sns events from matched strings found in a file/log"
 homepage    = "https://github.com/jkordish/feretto"
@@ -24,15 +24,22 @@ serde        = "^1"
 serde_json   = "^1"
 serde_derive = "^1"
 crossbeam    = "^0.3"
-rusoto_core  = "0.28.0"
-rusoto_sns   = "0.28.0"
-rusoto_sts   = "0.28.0"
+rusoto_core  = "0.29.0"
+rusoto_sns   = "0.29.0"
+rusoto_sts   = "0.29.0"
+slog         = "2"
+slog-term    = "2"
+slog-async   = "2"
 clippy       = {version="*", optional = true}
 
 [features]
 default=[]
 
 [profile.release]
-panic     = "abort"
-lto       = true
-opt-level = "s"
+panic            = "unwind"
+lto              = true
+debug            = false
+rpath            = false
+opt-level        = 3
+codegen-units    = 1
+debug-assertions = false
