@@ -1,34 +1,45 @@
 [package]
-name = "feretto"
-version = "0.0.2"
-authors = ["Joseph Kordish <joe@unicornclouds.com>"]
-
-description = "Utility to generate consul events from matched strings found in a file/log"
-homepage = "https://github.com/jkordish/feretto"
-repository = "https://github.com/jkordish/feretto"
-
-readme = "README.md"
-license = "The MIT License (MIT)"
+name        = "feretto"
+version     = "0.2.0"
+authors     = ["Joseph Kordish <joe@unicornclouds.com>"]
+description = "Utility to generate aws sns events from matched strings found in a file/log"
+homepage    = "https://github.com/jkordish/feretto"
+repository  = "https://github.com/jkordish/feretto"
+readme      = "README.md"
+license     = "The MIT License (MIT)"
 
 keywords = [
-  "consul",
+  "aws",
+  "sns",
   "event",
   "notify",
   "logs"
 ]
 
 [dependencies]
-docopt = "^0.6.81"
-docopt_macros = "^0.6.84"
-rustc-serialize = "^0.3.19"
-curl = "^0.2.19"
-notify = "^2.6.1"
-aho-corasick = "^0.5.2"
-serde = "^0.7.11"
-serde_json = "^0.7.2"
-serde_macros = "^0.7.11"
-crossbeam = "^0.2.9"
-clippy = {version="^0.0.77", optional = true}
+notify       = "^4"
+aho-corasick = "^0.6"
+ifaces       = "^0.1"
+serde        = "^1"
+serde_json   = "^1"
+serde_derive = "^1"
+crossbeam    = "^0.3"
+rusoto_core  = "0.29.0"
+rusoto_sns   = "0.29.0"
+rusoto_sts   = "0.29.0"
+slog         = "2"
+slog-term    = "2"
+slog-async   = "2"
+clippy       = {version="*", optional = true}
 
 [features]
 default=[]
+
+[profile.release]
+panic            = "unwind"
+lto              = true
+debug            = false
+rpath            = false
+opt-level        = 3
+codegen-units    = 1
+debug-assertions = false
