@@ -125,12 +125,18 @@ impl Watched for LogFile {
             None
         );
         // allow our STS to auto-refresh
-        let auto_sts_provider = AutoRefreshingProvider::with_refcell(sts_provider);
+        let auto_sts_provider = match AutoRefreshingProvider::with_refcell(sts_provider) {
+            Ok(auto_sts_provider) => auto_sts_provider,
+            Err(_) => {
+                logging("crit", "Unable to load STS credentials");
+                exit(1)
+            }
+        };
 
         // create our s3 client initialization
         let sns = SnsClient::new(
             default_tls_client().unwrap(),
-            auto_sts_provider?,
+            auto_sts_provider,
             Region::from_str(&config.region.clone()).unwrap()
         );
 
