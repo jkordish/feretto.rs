@@ -17,6 +17,3 @@ deploy:
     tags: true
   skip_cleanup: true
 sudo: false
-branches:
-  only:
-  - "/^v\\d+\\.\\d+(\\.\\d+)?(-\\S*)?$/"
