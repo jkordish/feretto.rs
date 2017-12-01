@@ -1,0 +1,22 @@
+language: rust
+rust:
+- nightly
+script:
+- cargo build --release
+cache: cargo
+before_deploy:
+- git config --local user.name "jkordish"
+- git config --local user.email "joe@unicornclouds.com"
+- git tag "$(date +'%Y%m%d%H%M%S')-$(git log --format=%h -1)"
+deploy:
+  provider: releases
+  api_key:
+    secure: NlvQ5o1HTQt9SOqxSuodt7+H1Ql1aDgFD9aJazLTOrzHBtRGC3YoCW0Cex0clWIj2710/RhwyjNf2m5Tabb9f6ilS7oj7Fgw7hnNa8BC/3OIcxSmNkeUYjTc2/tB48A4jME4yPzFi5pfGnyBm6Ox2wOE5r/ITFNKBiMgMbIu5LC+ngT6Mj96vCHphLsMIAxWHEDtmSrflKWt3upuajZ6Rx19vczB6u7m2Etmts3dfPrn8tUc9+l68BOiuKlyEux9IjilpH/GQyO3fWKdz5jjx/dxY/24G8OvXOKdpurx1iC87HUUCFrJLtCKs1DTf3mvMjZdudKRs8XUzR1iD/P8G+wiMC1DEhNsV/2nz30SQbhFKFjEMCT8R3XOaucBGXqGssBuSq2y8JRhDzrhOZmn5mFnMykQuYeslXvkRY6JHD+q2aUMQFPK69dybvTycb0Wv+hEX0kwb9Xm/l7sQAfz0W1UBSjU4IMX5sFzkFG+eTYRZ4TYLZHA613vNEKKkKq1LIfkyymfEJReFeJGyTj9G/tAoBw9Rq829l5UJjTREqb/NOc3vv16o8UvrFSxpUdfs1lF6ApRF5WCVQ+FayTGyKLJkeNseVzmGpGyh7e3XedF045xcFjsijDV93fAqJhE5EDoYpeKz7GJ6ocYU8+w+OZR8NtE9zksxmciDQiD7Cw=
+  file: "./target/release/feretto"
+  on:
+    tags: true
+  skip_cleanup: true
+sudo: false
+branches:
+  only:
+  - "/^v\\d+\\.\\d+(\\.\\d+)?(-\\S*)?$/"
