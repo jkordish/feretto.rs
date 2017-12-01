@@ -1,4 +1,4 @@
-# feretto
+# feretto [![Build Status](https://travis-ci.org/jkordish/feretto.rs.svg?branch=master)](https://travis-ci.org/jkordish/feretto.rs)
 
 ---
 

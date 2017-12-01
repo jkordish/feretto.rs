@@ -16,6 +16,10 @@ keywords = [
   "logs"
 ]
 
+[[bin]]
+name = "feretto"
+path = "src/main.rs"
+
 [dependencies]
 notify       = "^4"
 aho-corasick = "^0.6"
