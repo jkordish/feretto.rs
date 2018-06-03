@@ -1,10 +1,12 @@
-#![cfg_attr(feature = "clippy", plugin(clippy))]
-#![feature(plugin)]
+#![feature(nll)]
 
-extern crate aho_corasick;
+// extern crate aho_corasick;
+// #[macro_use]
+// extern crate lazy_static;
 extern crate crossbeam;
-extern crate ifaces;
+extern crate get_if_addrs;
 extern crate notify;
+extern crate regex;
 extern crate rusoto_core;
 extern crate rusoto_sns;
 extern crate rusoto_sts;
@@ -16,22 +18,18 @@ extern crate slog;
 extern crate slog_async;
 extern crate slog_term;
 
-use rusoto_core::{default_tls_client, AutoRefreshingProvider, DefaultCredentialsProvider, Region};
-use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
-use rusoto_sns::*;
-use slog::Drain;
-use aho_corasick::{AcAutomaton, Automaton};
+// use aho_corasick::{AcAutomaton, Automaton};
 use notify::{watcher, RecursiveMode, Watcher};
-use std::time::Duration;
-use std::io::{BufReader, SeekFrom};
+use regex::Regex;
+use rusoto_core::{reactor::RequestDispatcher, AutoRefreshingProvider, Region};
+use rusoto_sns::*;
+use rusoto_sts::{StsAssumeRoleSessionCredentialsProvider, StsClient};
+use slog::Drain;
 use std::io::prelude::*;
-use std::sync::mpsc::channel;
-use std::fs::{read_dir, File};
-use std::path::Path;
-use std::str::FromStr;
-use std::env;
-use std::process::exit;
-use std::error::Error;
+use std::{env, error::Error, path::Path, process::exit, str::FromStr, time::Duration};
+use std::{
+    fs::{read_dir, read_to_string, File}, io::{BufReader, SeekFrom}, sync::mpsc::channel
+};
 
 #[derive(Serialize, Deserialize)]
 struct LogFile {
@@ -55,75 +53,66 @@ struct SystemInfo {
 }
 
 trait Watched {
-    fn fire(&self, config: &ConfigFile) -> Result<PublishResponse, PublishError>;
+    fn fire(&self, config: &ConfigFile) -> Result<(), Box<Error>>;
     fn monitor(&self, config: &ConfigFile) -> Result<(), Box<Error>>;
 }
 
 trait WatchFile {
-    fn watch(&self) -> bool;
+    fn watch(&self) -> Result<(bool), Box<Error>>;
 }
 
 impl Watched for LogFile {
     fn monitor(&self, config: &ConfigFile) -> Result<(), Box<Error>> {
-
-        logging("info", &format!("Monitoring file {}", Path::new(&self.file).canonicalize().unwrap().display()));
+        logging(
+            "info",
+            &format!(
+                "Monitoring file {}",
+                Path::new(&self.file).canonicalize()?.display()
+            )
+        );
 
         // create a loop that fires an sns event if pattern is matched in a logfile
         loop {
-            if WatchFile::watch(self) {
+            if WatchFile::watch(self)? {
                 self.fire(config)?;
             }
         }
     }
 
-    fn fire(&self, config: &ConfigFile) -> Result<PublishResponse, PublishError> {
+    fn fire(&self, config: &ConfigFile) -> Result<(), Box<Error>> {
         // determine our hostname.
-        #[allow(unused_assignments)]
-        let mut hostname = String::new();
-        if let Ok(mut file) = File::open("/etc/hostname") {
-            let mut buffer = String::new();
-            let _ = file.read_to_string(&mut buffer).unwrap().to_string();
-            hostname = buffer.trim().to_owned();
-        } else {
-            hostname = "localhost".to_string();
-        }
+        let hostname = read_to_string("/etc/hostname")
+            .unwrap_or_else(|_| "localhost".to_string())
+            .trim()
+            .to_string();
 
         // need the ipaddr of our interface. will be part of the metadata
-        let mut address = String::new();
-        for iface in ifaces::Interface::get_all().unwrap() {
-            if iface.kind == ifaces::Kind::Ipv4 {
-                address = format!("{}", iface.addr.unwrap());
-                address = address.replace(":0", "");
+        let mut ipaddr = String::new();
+        for iface in get_if_addrs::get_if_addrs()? {
+            if !iface.is_loopback() {
+                ipaddr = iface.ip().to_string();
             }
-            continue;
         }
 
         // store hostname and ip address in our struct
-        let system: SystemInfo = SystemInfo {
-            hostname: hostname,
-            ipaddr: address
-        };
+        let system: SystemInfo = SystemInfo { hostname, ipaddr };
 
         logging("info", &format!("Firing for event '{}'", &self.string));
-        // set up our credentials provider for aws
-        let provider = DefaultCredentialsProvider::new()?;
 
         // initiate our sts client
-        let sts_client = StsClient::new(
-            default_tls_client().unwrap(),
-            provider,
-            Region::from_str(&config.region.clone()).unwrap()
-        );
+        let sts_client = StsClient::simple(Region::from_str(&config.region).unwrap());
+
         // generate a sts provider
         let sts_provider = StsAssumeRoleSessionCredentialsProvider::new(
             sts_client,
-            config.role_arn.clone(),
+            config.role_arn.to_owned(),
             "feretto".to_owned(),
             None,
             None,
             None,
             None
         );
+
         // allow our STS to auto-refresh
         let auto_sts_provider = match AutoRefreshingProvider::with_refcell(sts_provider) {
             Ok(auto_sts_provider) => auto_sts_provider,
@@ -135,50 +124,64 @@ impl Watched for LogFile {
 
         // create our s3 client initialization
         let sns = SnsClient::new(
-            default_tls_client().unwrap(),
+            RequestDispatcher::default(),
             auto_sts_provider,
-            Region::from_str(&config.region.clone()).unwrap()
+            Region::from_str(&config.region).unwrap()
         );
 
         let req = PublishInput {
             message: format!(
                 "{}:{}::Triggered {} on {}",
-                &system.hostname,
-                &system.ipaddr,
-                &self.string,
-                &self.name
+                &system.hostname, &system.ipaddr, &self.string, &self.name
             ),
             subject: Some("feretto: notification".to_string()),
-            target_arn: Some(config.target_arn.clone()),
+            target_arn: Some(config.target_arn.to_owned()),
             ..Default::default()
         };
 
-        sns.publish(&req)
+        match sns.publish(&req).sync() {
+            Ok(r) => {
+                logging(
+                    "info",
+                    &format!("Successfuly send notification {:?}", r.message_id)
+                );
+                Ok(())
+            }
+            Err(e) => {
+                logging("crit", &format!("Failed to send notification {:?}", e));
+                Ok(())
+            }
+        }
     }
 }
 
 impl WatchFile for LogFile {
-    fn watch(&self) -> bool {
+    fn watch(&self) -> Result<(bool), Box<Error>> {
         // Attempt to open the file or error.
-        let file = File::open(&self.file).unwrap();
+        let file = File::open(&self.file)?;
 
         // Attempt to get the metadata of the file or error.
-        let metadata = file.metadata().unwrap();
+        let metadata = file.metadata()?;
 
         // Create a buffered reader for the file.
         let mut reader = BufReader::new(&file);
         // Get the initial position of the file from the metadata.
         let mut pos = metadata.len();
         // read from pos as to not read the entire file.
-        reader.seek(SeekFrom::Start(pos)).unwrap();
+        reader.seek(SeekFrom::Start(pos))?;
 
         let (tx, rx) = channel();
-        let mut watcher = watcher(tx, Duration::from_secs(2)).unwrap();
+        let mut watcher = watcher(tx, Duration::from_secs(2))?;
 
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
-        watcher.watch(&self.file, RecursiveMode::NonRecursive)
-            .unwrap();
+        watcher.watch(&self.file, RecursiveMode::NonRecursive)?;
+
+        // TODO: utilize lazy_static for one time complilation of the regex
+        // let regex = format!("(?i).*{}.*", &self.string);
+        // lazy_static! {
+        //     static ref RE: Regex = Regex::new(regex).unwrap();
+        // }
 
         // while loop whenever we receive a message on the channel
         if let Ok(event) = rx.recv() {
@@ -191,41 +194,30 @@ impl WatchFile for LogFile {
             if let Ok(len) = resp {
                 if len > 0 {
                     pos += len as u64;
-                    reader.seek(SeekFrom::Start(pos)).unwrap();
-
-                    let aut = AcAutomaton::new(vec![self.string.to_owned()]);
-                    let mut it = aut.find(line.as_bytes());
-
-                    logging("info", &format!("Event occurred {:?}", &event));
-                    if it.next().is_some() {
-                        return true;
+                    reader.seek(SeekFrom::Start(pos))?;
+                    let regex = format!("(?i).*{}.*", &self.string);
+                    let re = Regex::new(&regex)?;
+                    if re.is_match(&line) {
+                        logging("info", &format!("Event occurred {:?}", &event));
+                        return Ok(true);
                     };
                 }
             }
             line.clear();
         }
-        false
+        Ok(false)
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<Error>> {
     let args: Vec<_> = env::args().collect();
-    if args.len() < 2 {
+    if args.is_empty() {
         println!("feretto <config.json> <configs/>");
         exit(1)
     }
 
-    // open our config file
-    let config_file = match File::open(&args[1]) {
-        Ok(file) => file,
-        Err(_) => {
-            logging("crit", &format!("Unable to open {}", &args[1]));
-            exit(1)
-        }
-    };
-
     // attempt to deserialize the config to our struct
-    let config: ConfigFile = match serde_json::from_reader(config_file) {
+    let config: ConfigFile = match serde_json::from_str(&read_to_string(&args[1])?) {
         Ok(json) => json,
         Err(_) => {
             logging("crit", &format!("{} not valid json", &args[1]));
@@ -233,7 +225,13 @@ fn main() {
         }
     };
 
-    logging("info", &format!("[INFO] Processing configuration file {}", Path::new(&args[1]).canonicalize().unwrap().display()));
+    logging(
+        "info",
+        &format!(
+            "[INFO] Processing configuration file {}",
+            Path::new(&args[1]).canonicalize()?.display()
+        )
+    );
 
     // open the directory to all the json files specifying log sources
     let path = match read_dir(&args[2]) {
@@ -245,30 +243,31 @@ fn main() {
     };
 
     // if we got here we should let someone know
-    logging("info", "Ferretto starting up...");
+    logging("info", "Starting up...");
 
-    crossbeam::scope(|scope|
+    crossbeam::scope(|scope| {
         for file in path {
-            scope.spawn( || {
+            scope.spawn(|| {
                 let clone_log_file = file.unwrap().path().canonicalize().unwrap().clone();
-                let watched_log_file = match File::open(&clone_log_file) {
+
+                let logfile: LogFile = match serde_json::from_str(
+                    &read_to_string(&clone_log_file.to_str().unwrap()).unwrap()
+                ) {
                     Ok(file) => file,
                     Err(_) => {
-                        logging("crit", &format!("Unable to open {}", &clone_log_file.to_str().unwrap()));
-                        exit(1)
-                    }
-                };
-                let logfile: LogFile = match serde_json::from_reader(watched_log_file) {
-                    Ok(file) => file,
-                    Err(_) => {
-                        logging("crit", &format!("{} not valid json?", &clone_log_file.to_str().unwrap()));
+                        logging(
+                            "crit",
+                            &format!("{} not valid json?", &clone_log_file.to_str().unwrap())
+                        );
                         exit(1)
                     }
                 };
 
                 let _ = Watched::monitor(&logfile, &config);
             });
-        });
+        }
+    });
+    Ok(())
 }
 
 fn logging(log_type: &str, msg: &str) {
@@ -279,9 +278,9 @@ fn logging(log_type: &str, msg: &str) {
     let logger = slog::Logger::root(drain, o!());
 
     match log_type {
-        "info" => info!(logger, "copy-ami-tags"; "[*]" => &msg),
-        "error" => error!(logger, "copy-ami-tags"; "[*]" => &msg),
-        "crit" => crit!(logger, "copy-ami-tags"; "[*]" => &msg),
+        "info" => info!(logger, "feretto"; "[*]" => &msg),
+        "error" => error!(logger, "feretto"; "[*]" => &msg),
+        "crit" => crit!(logger, "feretto"; "[*]" => &msg),
         _ => {}
     }
 }
